@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Your Steam Card</title>
+<meta property="og:title" content="My Steam gaming card" />
+<meta property="og:description" content="Total hours, top games, and gamer type — make your own." />
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 820px; margin: 5vh auto; padding: 0 1rem; color:#1b2838; }
+  h1 { font-size: 1.5rem; }
+  input { padding: .6rem; width: 100%; box-sizing: border-box; font-size: 1rem; }
+  button { padding: .6rem 1.1rem; font-size: 1rem; margin: .6rem .4rem 0 0; cursor: pointer; }
+  .muted { color: #667; }
+  .err { color: #b00; }
+  #card { display:none; margin-top:1rem; max-width:100%; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.18); }
+  #actions { display:none; }
+</style>
+</head>
+<body>
+  <h1>What does your Steam library say about you?</h1>
+  <p class="muted">Paste your Steam ID (17-digit number) or vanity name. Profile, game details, and playtime must be Public.</p>
+  <input id="id" placeholder="e.g. 76561198290701574  or  yourvanityname" />
+  <button id="go">Make my card</button>
+  <div id="out"></div>
+
+  <canvas id="card" width="760" height="470"></canvas>
+  <div id="actions">
+    <button id="dl">Download image</button>
+    <button id="copy">Copy link to make your own</button>
+  </div>
+
+  <div id="signup" style="display:none; margin-top:1.2rem">
+    <p style="margin-bottom:.3rem">Want it to auto-sync your whole library (PSN/Xbox too) and tell you what to play next?</p>
+    <input id="email" type="email" placeholder="you@email.com" style="max-width:320px; width:auto; display:inline-block" />
+    <button id="sub">Notify me</button>
+    <span id="submsg" class="muted"></span>
+  </div>
+
+<script>
+const out = document.getElementById("out");
+const canvas = document.getElementById("card");
+const ctx = canvas.getContext("2d");
+const params = new URLSearchParams(location.search);
+const SRC = params.get("src") || "direct";
+
+document.getElementById("go").onclick = run;
+document.getElementById("id").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+document.getElementById("dl").onclick = () => {
+  const a = document.createElement("a");
+  a.download = "steam-card.png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+};
+document.getElementById("copy").onclick = () => {
+  navigator.clipboard.writeText(location.origin + "/?id=" + lastId + "&src=card");
+  document.getElementById("copy").textContent = "Copied!";
+};
+
+// auto-load from a shared link
+if (params.get("id")) { document.getElementById("id").value = params.get("id"); run(); }
+
+let lastId = "";
+let lastCard = null;
+async function run() {
+  const id = document.getElementById("id").value.trim();
+  if (!id) return;
+  out.innerHTML = "<p class='muted'>Loading…</p>";
+  canvas.style.display = "none";
+  document.getElementById("actions").style.display = "none";
+  document.getElementById("signup").style.display = "none";
+  try {
+    const r = await fetch("/api/card?id=" + encodeURIComponent(id) + "&src=" + encodeURIComponent(SRC));
+    const j = await r.json();
+    if (!r.ok) { out.innerHTML = "<p class='err'>" + j.error + "</p>"; return; }
+    lastId = j.steamid;
+    lastCard = j;
+    out.innerHTML = "";
+    await drawCard(j);
+    canvas.style.display = "block";
+    document.getElementById("actions").style.display = "block";
+    document.getElementById("signup").style.display = "block";
+  } catch (e) {
+    out.innerHTML = "<p class='err'>" + e.message + "</p>";
+  }
+}
+
+document.getElementById("sub").onclick = async () => {
+  const email = document.getElementById("email").value.trim();
+  const msg = document.getElementById("submsg");
+  if (!email || !/.+@.+\..+/.test(email)) { msg.textContent = "Enter a valid email."; return; }
+  msg.textContent = "Saving…";
+  try {
+    const r = await fetch("/api/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email, src: SRC, steamid: lastId,
+        gamerType: lastCard?.gamerType, totalHours: lastCard?.totalHours, unplayedPct: lastCard?.unplayedPct,
+      }),
+    });
+    msg.textContent = r.ok ? "Thanks — you're on the list." : "Something went wrong.";
+  } catch { msg.textContent = "Something went wrong."; }
+};
+
+function loadImg(src) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+}
+
+async function drawCard(d) {
+  const W = 760, H = 470;
+  const trunc = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+  // background
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, "#1b2838"); grad.addColorStop(1, "#2a475e");
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#66c0f4"; ctx.fillRect(0, 0, W, 6);
+
+  // --- header: avatar + name + identity ---
+  if (d.avatar) {
+    const img = await loadImg("/api/avatar?u=" + encodeURIComponent(d.avatar));
+    if (img) {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(88, 82, 48, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(img, 40, 34, 96, 96);
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 30px system-ui, sans-serif";
+  ctx.fillText(trunc(d.name, 22), 156, 70);
+  ctx.fillStyle = "#66c0f4";
+  ctx.font = "800 20px system-ui, sans-serif";
+  ctx.fillText(d.gamerType.toUpperCase(), 156, 98);
+  ctx.fillStyle = "#c7d5e0";
+  ctx.font = "italic 400 16px system-ui, sans-serif";
+  ctx.fillText(d.gamerBlurb, 156, 122);
+
+  // --- hero stat (left) ---
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 66px system-ui, sans-serif";
+  ctx.fillText(d.totalHours.toLocaleString(), 40, 230);
+  ctx.fillStyle = "#c7d5e0";
+  ctx.font = "400 19px system-ui, sans-serif";
+  ctx.fillText("hours played", 44, 256);
+  ctx.fillStyle = "#66c0f4";
+  ctx.font = "700 22px system-ui, sans-serif";
+  ctx.fillText("= " + d.daysPlayed + " days of your life", 44, 292);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "400 17px system-ui, sans-serif";
+  if (d.top5[0]) ctx.fillText(d.topGameDays + " days in " + trunc(d.top5[0].name, 22), 44, 326);
+
+  // --- most played (right) ---
+  ctx.fillStyle = "#8f98a0";
+  ctx.font = "700 14px system-ui, sans-serif";
+  ctx.fillText("MOST PLAYED", 440, 168);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "400 17px system-ui, sans-serif";
+  d.top5.forEach((g, i) => {
+    ctx.fillText((i + 1) + ". " + trunc(g.name, 24) + "  (" + g.hours + "h)", 440, 198 + i * 28);
+  });
+
+  // --- social comparison band ---
+  ctx.fillStyle = "rgba(102,192,244,0.12)";
+  ctx.fillRect(28, 356, W - 56, 46);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "600 18px system-ui, sans-serif";
+  ctx.fillText(d.compareLine, 44, 384);
+
+  // --- footer ---
+  ctx.fillStyle = "#66c0f4";
+  ctx.font = "400 15px system-ui, sans-serif";
+  ctx.fillText("make your own →  " + location.host, 40, 446);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+.env
+npsso.txt
+signups.jsonl
+*.log

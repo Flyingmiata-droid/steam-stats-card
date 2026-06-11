@@ -1,0 +1,14 @@
+{
+  "name": "game-tracker",
+  "version": "0.1.0",
+  "description": "Steam stats card tool",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env server.mjs"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "psn-api": "^2.18.0"
+  }
+}
