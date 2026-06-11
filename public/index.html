@@ -91,9 +91,9 @@ document.getElementById("sub").onclick = async () => {
   if (!email || !/.+@.+\..+/.test(email)) { msg.textContent = "Enter a valid email."; return; }
   msg.textContent = "Saving…";
   try {
-    const r = await fetch("/api/signup", {
+    const r = await fetch("https://formspree.io/f/mkoeabbr", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({
         email, src: SRC, steamid: lastId,
         gamerType: lastCard?.gamerType, totalHours: lastCard?.totalHours, unplayedPct: lastCard?.unplayedPct,
