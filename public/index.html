@@ -30,11 +30,15 @@
     <button id="copy">Copy link to make your own</button>
   </div>
 
-  <div id="signup" style="display:none; margin-top:1.2rem">
-    <p style="margin-bottom:.3rem">Want it to auto-sync your whole library (PSN/Xbox too) and tell you what to play next?</p>
-    <input id="email" type="email" placeholder="you@email.com" style="max-width:320px; width:auto; display:inline-block" />
-    <button id="sub">Notify me</button>
-    <span id="submsg" class="muted"></span>
+  <div id="playnext" style="display:none; margin-top:1.4rem">
+    <p style="margin:0 0 .5rem; font-weight:600">Your next great game is already in your library.</p>
+    <button id="next" style="background:#66c0f4; border:0; border-radius:8px; color:#06121e; font-weight:700">See what to play next →</button>
+    <div id="nextstub" style="display:none; margin-top:.8rem">
+      <p style="margin:0 0 .3rem" class="muted">Building this right now — want first access when it's ready?</p>
+      <input id="email" type="email" placeholder="you@email.com" style="max-width:320px; width:auto; display:inline-block" />
+      <button id="sub">Get first access</button>
+      <span id="submsg" class="muted"></span>
+    </div>
   </div>
 
 <script>
@@ -68,7 +72,7 @@ async function run() {
   out.innerHTML = "<p class='muted'>Loading…</p>";
   canvas.style.display = "none";
   document.getElementById("actions").style.display = "none";
-  document.getElementById("signup").style.display = "none";
+  document.getElementById("playnext").style.display = "none";
   try {
     const r = await fetch("/api/card?id=" + encodeURIComponent(id) + "&src=" + encodeURIComponent(SRC));
     const j = await r.json();
@@ -79,11 +83,31 @@ async function run() {
     await drawCard(j);
     canvas.style.display = "block";
     document.getElementById("actions").style.display = "block";
-    document.getElementById("signup").style.display = "block";
+    document.getElementById("playnext").style.display = "block";
+    document.getElementById("nextstub").style.display = "none";
+    const nb = document.getElementById("next"); nb.disabled = false; nb.textContent = "See what to play next →";
   } catch (e) {
     out.innerHTML = "<p class='err'>" + e.message + "</p>";
   }
 }
+
+// Painted-door: the second-action signal. Logs the click (no email) to the same Formspree sink.
+document.getElementById("next").onclick = async () => {
+  const btn = document.getElementById("next");
+  document.getElementById("nextstub").style.display = "block";
+  btn.disabled = true; btn.textContent = "Building it — see below ↓";
+  try {
+    await fetch("https://formspree.io/f/mkoeabbr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        event: "play_next_click", src: SRC, steamid: lastId,
+        gamerType: lastCard?.gamerType, owned: lastCard?.owned,
+        unplayedPct: lastCard?.unplayedPct, backlogCount: lastCard?.backlogCount,
+      }),
+    });
+  } catch {}
+};
 
 document.getElementById("sub").onclick = async () => {
   const email = document.getElementById("email").value.trim();
