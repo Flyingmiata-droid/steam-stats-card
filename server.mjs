@@ -56,6 +56,27 @@ function compareLine(unplayedPct) {
   return `${unplayedPct}% unplayed — right around the ${AVG_UNPLAYED_PCT}% average.`;
 }
 
+// Steam store appdetails per app (genre + metacritic). Static per app -> cache globally, shared across all users.
+const appCache = new Map();
+async function fetchAppDetails(appid) {
+  if (appCache.has(appid)) return appCache.get(appid);
+  let v = null;
+  try {
+    const r = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&filters=basic,genres,categories,metacritic`);
+    const j = await r.json();
+    const a = j?.[appid];
+    if (a?.success && a.data) {
+      v = {
+        genres: (a.data.genres || []).map(x => x.description),
+        metacritic: a.data.metacritic?.score ?? null,
+        categories: (a.data.categories || []).map(x => x.description),
+      };
+    }
+  } catch { /* leave null */ }
+  appCache.set(appid, v);
+  return v;
+}
+
 app.get("/api/card", async (req, res) => {
   try {
     const input = req.query.id;
@@ -108,6 +129,39 @@ app.get("/api/card", async (req, res) => {
       compareLine: compareLine(unplayedPct),             // honest social comparison
       backlogCount: backlog.length,                      // junk-filtered real backlog, Hook-A seam
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// "What to play next": junk-filtered unplayed games enriched with genre + metacritic.
+app.get("/api/backlog", async (req, res) => {
+  try {
+    const input = req.query.id;
+    if (!input) return res.status(400).json({ error: "Pass ?id=<steam id or vanity name>" });
+    const steamid = await resolveToSteamId64(String(input));
+    if (!steamid) return res.status(404).json({ error: "Couldn't resolve that Steam ID or vanity name." });
+
+    const gamesR = await fetch(`https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${KEY}&steamid=${steamid}&include_appinfo=true&include_played_free_games=true&format=json`).then(r => r.json());
+    const games = gamesR?.response?.games;
+    if (!games) return res.status(403).json({ error: "No games returned — profile is likely private. Set it to Public and retry.", steamid });
+
+    const allUnplayed = games.filter(g => g.playtime_forever === 0 && !JUNK.test(g.name || ""));
+    const CAP = 80; // keep first-load latency + appdetails rate-limit sane
+    const toEnrich = allUnplayed.slice(0, CAP);
+
+    const out = [];
+    const queue = [...toEnrich];
+    async function worker() {
+      while (queue.length) {
+        const g = queue.shift();
+        const d = await fetchAppDetails(g.appid);
+        out.push({ appid: g.appid, name: cleanName(g.name), genres: d?.genres || [], metacritic: d?.metacritic ?? null, categories: d?.categories || [] });
+      }
+    }
+    await Promise.all(Array.from({ length: 6 }, worker)); // small concurrency
+
+    res.json({ steamid, totalUnplayed: allUnplayed.length, returned: out.length, capped: allUnplayed.length > CAP, games: out });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>What to play next</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 820px; margin: 5vh auto; padding: 0 1rem; color:#1b2838; }
+  h1 { font-size: 1.6rem; margin-bottom:.2rem; }
+  .muted { color: #667; }
+  .err { color: #b00; }
+  a { color: #2a6f97; }
+  button, select { font-size: 1rem; padding: .55rem .9rem; cursor: pointer; }
+  select { cursor: default; }
+  #controls { display:none; margin:1rem 0; gap:.5rem; flex-wrap:wrap; align-items:center; }
+  #controls > * { margin:.25rem .4rem .25rem 0; }
+  .primary { background:#66c0f4; border:0; border-radius:8px; color:#06121e; font-weight:700; }
+  #pick { display:none; margin-top:.5rem; background:#1b2838; color:#fff; border-radius:14px; overflow:hidden; box-shadow:0 6px 24px rgba(0,0,0,.18); }
+  #pick img { width:100%; display:block; background:#0c1620; }
+  .pickbody { padding:1rem 1.2rem 1.3rem; }
+  .pickname { font-size:1.4rem; font-weight:700; }
+  .badge { display:inline-block; background:#66c0f4; color:#06121e; font-weight:700; border-radius:6px; padding:.1rem .5rem; font-size:.9rem; margin-left:.5rem; }
+  .gen { color:#c7d5e0; margin:.3rem 0 .9rem; }
+  .pickbody a.play { display:inline-block; background:#66c0f4; color:#06121e; font-weight:700; text-decoration:none; border-radius:8px; padding:.55rem 1rem; margin-right:.5rem; }
+  #list { margin-top:1.4rem; }
+  #list table { width:100%; border-collapse:collapse; }
+  #list td { padding:.35rem .4rem; border-bottom:1px solid #e3e8ee; }
+  #list td:last-child { text-align:right; color:#667; white-space:nowrap; }
+  details summary { cursor:pointer; font-weight:600; margin-bottom:.5rem; }
+</style>
+</head>
+<body>
+  <h1>What should you play next?</h1>
+  <p class="muted">From the games you already own and haven't started. <a id="back" href="/">← back to your card</a></p>
+  <div id="out"><p class="muted">Loading your unplayed games…</p></div>
+
+  <div id="controls">
+    <label>Genre:
+      <select id="genre"><option value="">All</option></select>
+    </label>
+    <button id="best" class="primary">⭐ Best one I haven't played</button>
+    <button id="surprise">🎲 Surprise me</button>
+  </div>
+
+  <div id="pick">
+    <img id="pickimg" alt="" />
+    <div class="pickbody">
+      <div><span class="pickname" id="pickname"></span><span class="badge" id="pickmc" style="display:none"></span></div>
+      <div class="gen" id="pickgen"></div>
+      <a class="play" id="pickplay" href="#" target="_blank" rel="noopener">Open in Steam →</a>
+      <button id="another">Pick another</button>
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const ID = params.get("id") || "";
+const SRC = params.get("src") || "direct";
+document.getElementById("back").href = "/?id=" + encodeURIComponent(ID);
+const out = document.getElementById("out");
+let games = [];
+
+function logEvent(type) {
+  try {
+    fetch("https://formspree.io/f/mkoeabbr", {
+      method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ event: type, src: SRC, steamid: ID }),
+    });
+  } catch {}
+}
+
+function filtered() {
+  const g = document.getElementById("genre").value;
+  return g ? games.filter(x => x.genres.includes(g)) : games.slice();
+}
+
+function show(game) {
+  if (!game) { out.innerHTML = "<p class='muted'>No games match that filter.</p>"; document.getElementById("pick").style.display="none"; return; }
+  document.getElementById("pickimg").src = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + game.appid + "/header.jpg";
+  document.getElementById("pickname").textContent = game.name;
+  const mc = document.getElementById("pickmc");
+  if (game.metacritic) { mc.textContent = "Metacritic " + game.metacritic; mc.style.display="inline-block"; } else { mc.style.display="none"; }
+  document.getElementById("pickgen").textContent = game.genres.join(" · ") || "";
+  document.getElementById("pickplay").href = "https://store.steampowered.com/app/" + game.appid;
+  document.getElementById("pick").style.display = "block";
+}
+
+function pickBest() {
+  const f = filtered().filter(g => g.metacritic != null).sort((a,b) => b.metacritic - a.metacritic);
+  show(f[0] || filtered()[0]);
+  logEvent("play_next_used");
+}
+function pickRandom() {
+  const f = filtered();
+  show(f[Math.floor(Math.random() * f.length)]);
+  logEvent("play_next_used");
+}
+
+document.getElementById("best").onclick = pickBest;
+document.getElementById("surprise").onclick = pickRandom;
+document.getElementById("another").onclick = pickRandom;
+document.getElementById("pickplay").onclick = () => logEvent("steam_open");
+document.getElementById("genre").onchange = () => document.getElementById("pick").style.display = "none";
+
+function renderList() {
+  const rows = games.slice().sort((a,b) => (b.metacritic||0) - (a.metacritic||0))
+    .map(g => `<tr><td>${g.name}</td><td>${g.genres.slice(0,2).join(", ")}</td><td>${g.metacritic ? "MC "+g.metacritic : ""}</td></tr>`).join("");
+  document.getElementById("list").innerHTML =
+    `<details><summary>Show all ${games.length} unplayed games</summary><table>${rows}</table></details>`;
+}
+
+async function load() {
+  if (!ID) { out.innerHTML = "<p class='err'>No Steam ID. Go back and make your card first.</p>"; return; }
+  logEvent("backlog_view");
+  try {
+    const r = await fetch("/api/backlog?id=" + encodeURIComponent(ID));
+    const j = await r.json();
+    if (!r.ok) { out.innerHTML = "<p class='err'>" + j.error + "</p>"; return; }
+    games = j.games || [];
+    if (!games.length) { out.innerHTML = "<p class='muted'>Nice — no unplayed games found. Your backlog is clean.</p>"; return; }
+    const note = j.capped ? ` (showing the first ${j.returned} of ${j.totalUnplayed})` : "";
+    out.innerHTML = `<p class="muted">${games.length} unplayed games found${note}. Pick one:</p>`;
+    const sel = document.getElementById("genre");
+    [...new Set(games.flatMap(g => g.genres))].sort().forEach(g => {
+      const o = document.createElement("option"); o.value = g; o.textContent = g; sel.appendChild(o);
+    });
+    document.getElementById("controls").style.display = "flex";
+    pickBest();
+  } catch (e) {
+    out.innerHTML = "<p class='err'>" + e.message + "</p>";
+  }
+}
+load();
+</script>
+</body>
+</html>

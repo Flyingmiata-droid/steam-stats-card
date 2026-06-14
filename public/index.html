@@ -91,22 +91,15 @@ async function run() {
   }
 }
 
-// Painted-door: the second-action signal. Logs the click (no email) to the same Formspree sink.
-document.getElementById("next").onclick = async () => {
-  const btn = document.getElementById("next");
-  document.getElementById("nextstub").style.display = "block";
-  btn.disabled = true; btn.textContent = "Building it — see below ↓";
-  try {
-    await fetch("https://formspree.io/f/mkoeabbr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify({
-        event: "play_next_click", src: SRC, steamid: lastId,
-        gamerType: lastCard?.gamerType, owned: lastCard?.owned,
-        unplayedPct: lastCard?.unplayedPct, backlogCount: lastCard?.backlogCount,
-      }),
-    });
-  } catch {}
+// Second-action: log the click (sendBeacon survives the navigation), then go to the real play-next view.
+document.getElementById("next").onclick = () => {
+  const payload = JSON.stringify({
+    event: "play_next_click", src: SRC, steamid: lastId,
+    gamerType: lastCard?.gamerType, owned: lastCard?.owned,
+    unplayedPct: lastCard?.unplayedPct, backlogCount: lastCard?.backlogCount,
+  });
+  try { navigator.sendBeacon("https://formspree.io/f/mkoeabbr", new Blob([payload], { type: "application/json" })); } catch {}
+  location.href = "/backlog.html?id=" + encodeURIComponent(lastId) + "&src=" + encodeURIComponent(SRC);
 };
 
 document.getElementById("sub").onclick = async () => {
